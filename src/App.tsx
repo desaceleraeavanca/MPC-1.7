@@ -13,6 +13,7 @@ import { SEARCHABLE_TEXT } from '@/src/searchableContent';
 import type { Chapter, SearchResult, GlobalNotification, Announcement, Student, StaffUser, UserRole } from '@/src/types';
 import { Bell, BookOpen, Cog, FileText, Eye, Home, User, LogOut, X, AlertTriangle, Megaphone, ChevronDown, CheckCircle, Layers } from '@/src/components/Icons';
 import { iconMap } from '@/src/components/Icons';
+import { supabase } from '@/src/integrations/supabase/client';
 
 // Custom Hooks
 import { useSupabaseAuth } from '@/src/hooks/useSupabaseAuth';
@@ -22,6 +23,8 @@ import { useClickOutside } from '@/src/hooks/useClickOutside';
 import { useUserActions } from '@/src/hooks/useUserActions';
 
 // --- Persistence Helper (for global/admin state only) ---
+// This helper is now only used for initial loading of global states that are not yet in Supabase
+// or for states that are truly local to the browser session (e.g., search query).
 const getInitialState = <T,>(key: string, defaultValue: T): T => {
   try {
     const storedValue = localStorage.getItem(key);
@@ -40,41 +43,128 @@ const getInitialState = <T,>(key: string, defaultValue: T): T => {
 
 
 const App: React.FC = () => {
-  // --- Global App State (persisted with static keys) ---
-  const [adminSettings, setAdminSettings] = useState(() => getInitialState('adminSettings', {
+  // --- Global App State (now loaded from Supabase or defaults) ---
+  const [adminSettings, setAdminSettings] = useState<{
+    socialModuleEnabled: boolean;
+    maintenanceMode: boolean;
+    newSignups: boolean;
+    mainColumnWidgets: string[];
+    sidebarColumnWidgets: string[];
+    widgetTiers: Record<string, UserTier>;
+  }>({
     socialModuleEnabled: true,
     maintenanceMode: false,
-    newSignups: false,
-  }));
-  const [globalAnnouncement, setGlobalAnnouncement] = useState<Announcement | null>(() => getInitialState('globalAnnouncement', null));
-  const defaultStudents: Student[] = [
-    { id: "usr_1", name: "Alice Rodrigues", email: "alice.r@example.com", avatarUrl: "https://i.pravatar.cc/100?u=alice-r", tier: "Completo", joinedDate: "15/01/2023", progress: 85 },
-    { id: "usr_2", name: "Bruno Costa", email: "bruno.c@example.com", avatarUrl: "https://i.pravatar.cc/100?u=marwz", tier: "Essencial", joinedDate: "22/03/2023", progress: 42 },
-    { id: "usr_3", name: "Carla Dias", email: "carla.d@example.com", avatarUrl: "https://i.pravatar.cc/100?u=katy", tier: "Completo", joinedDate: "10/05/2023", progress: 100 },
-    { id: "usr_4", name: "Daniel Alves", email: "daniel.a@example.com", avatarUrl: "https://i.pravatar.cc/100?u=daniel-a", tier: "Grátis", joinedDate: "01/06/2023", progress: 15 }
-  ];
-  const [students, setStudents] = useState<Student[]>(() => getInitialState('students', defaultStudents));
-  const defaultStaffUsers: StaffUser[] = [
-    { id: 'staff_alex', name: 'Alexandre Rossi', email: 'alex.rossi@example.com', avatarUrl: 'https://i.pravatar.cc/100?u=alex-rossi', role: 'Professor', joinedDate: '10/01/2023' },
-    { id: 'staff_adilson', name: 'Adilson Silva', email: 'adilsonsilva@outlook.com', avatarUrl: 'https://i.pravatar.cc/100?u=joao', role: 'Administrador', joinedDate: '12/07/2023' },
-  ];
-  const [staffUsers, setStaffUsers] = useState<StaffUser[]>(() => getInitialState('staffUsers', defaultStaffUsers));
-  const [mainColumnWidgets, setMainColumnWidgets] = useState<string[]>(() => getInitialState('mainColumnWidgets', ['currentStatus', 'activitySummary', 'concept', 'resources']));
-  const [sidebarColumnWidgets, setSidebarColumnWidgets] = useState<string[]>(() => getInitialState('sidebarColumnWidgets', ['timeline', 'tasks', 'weeklyGoals', 'calendar', 'focusTimer', 'quoteOfTheDay', 'badges', 'friends', 'favorites']));
-  const [widgetTiers, setWidgetTiers] = useState<Record<string, UserTier>>(() => getInitialState('widgetTiers', { currentStatus: 'Grátis', concept: 'Essencial', resources: 'Grátis', timeline: 'Grátis', tasks: 'Grátis', weeklyGoals: 'Essencial', badges: 'Completo', friends: 'Completo', favorites: 'Essencial', quoteOfTheDay: 'Grátis', focusTimer: 'Essencial', activitySummary: 'Completo', calendar: 'Essencial' }));
-  const getInitialChapterConfigs = () => BOOK_CONTENT.map(chapter => ({ id: chapter.id, title: chapter.title, shortTitle: chapter.shortTitle, tier: chapter.tier, iconName: Object.keys(iconMap).find(key => iconMap[key] === chapter.icon) || 'BookOpen' }));
-  const [chapterConfigs, setChapterConfigs] = useState(() => getInitialState('chapterConfigs', getInitialChapterConfigs()));
+    newSignups: true,
+    mainColumnWidgets: ['currentStatus', 'activitySummary', 'concept', 'resources'],
+    sidebarColumnWidgets: ['timeline', 'tasks', 'weeklyGoals', 'calendar', 'focusTimer', 'quoteOfTheDay', 'badges', 'friends', 'favorites'],
+    widgetTiers: { currentStatus: 'Grátis', concept: 'Essencial', resources: 'Grátis', timeline: 'Grátis', tasks: 'Grátis', weeklyGoals: 'Essencial', badges: 'Completo', friends: 'Completo', favorites: 'Essencial', quoteOfTheDay: 'Grátis', focusTimer: 'Essencial', activitySummary: 'Completo', calendar: 'Essencial' },
+  });
+  const [globalAnnouncement, setGlobalAnnouncement] = useState<Announcement | null>(null);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [staffUsers, setStaffUsers] = useState<StaffUser[]>([]);
+  const [chapterConfigs, setChapterConfigs] = useState<Chapter[]>([]);
   
-  // --- Global State Persistence ---
-  useEffect(() => { localStorage.setItem('adminSettings', JSON.stringify(adminSettings)); }, [adminSettings]);
-  useEffect(() => { localStorage.setItem('globalAnnouncement', JSON.stringify(globalAnnouncement)); }, [globalAnnouncement]);
-  useEffect(() => { localStorage.setItem('students', JSON.stringify(students)); }, [students]);
-  useEffect(() => { localStorage.setItem('staffUsers', JSON.stringify(staffUsers)); }, [staffUsers]);
-  useEffect(() => { localStorage.setItem('mainColumnWidgets', JSON.stringify(mainColumnWidgets)); }, [mainColumnWidgets]);
-  useEffect(() => { localStorage.setItem('sidebarColumnWidgets', JSON.stringify(sidebarColumnWidgets)); }, [sidebarColumnWidgets]);
-  useEffect(() => { localStorage.setItem('widgetTiers', JSON.stringify(widgetTiers)); }, [widgetTiers]);
-  useEffect(() => { localStorage.setItem('chapterConfigs', JSON.stringify(chapterConfigs)); }, [chapterConfigs]);
-  
+  // --- Load Global App State from Supabase ---
+  useEffect(() => {
+    const loadGlobalSettings = async () => {
+      const { data, error } = await supabase
+        .from('admin_settings')
+        .select('*')
+        .single();
+
+      if (error) {
+        console.error('Error loading admin settings from Supabase:', error);
+        // Fallback to default local state if Supabase fails or is empty
+      } else if (data) {
+        setAdminSettings({
+          socialModuleEnabled: data.social_module_enabled,
+          maintenanceMode: data.maintenance_mode,
+          newSignups: data.new_signups,
+          mainColumnWidgets: data.main_column_widgets,
+          sidebarColumnWidgets: data.sidebar_column_widgets,
+          widgetTiers: data.widget_tiers,
+        });
+      }
+    };
+
+    const loadGlobalAnnouncement = async () => {
+      const { data, error } = await supabase
+        .from('global_announcements')
+        .select('*')
+        .single();
+
+      if (error) {
+        console.error('Error loading global announcement from Supabase:', error);
+      } else if (data && data.message) {
+        setGlobalAnnouncement({ message: data.message, displayType: data.display_type });
+      } else {
+        setGlobalAnnouncement(null);
+      }
+    };
+
+    const loadChapterConfigs = async () => {
+      const { data, error } = await supabase
+        .from('chapter_configs')
+        .select('*')
+        .order('id', { ascending: true });
+
+      if (error) {
+        console.error('Error loading chapter configs from Supabase:', error);
+        // Fallback to local BOOK_CONTENT if Supabase fails
+        setChapterConfigs(BOOK_CONTENT.map(chapter => ({ ...chapter, iconName: Object.keys(iconMap).find(key => iconMap[key] === chapter.icon) || 'BookOpen' })));
+      } else if (data) {
+        setChapterConfigs(data.map(config => ({ ...config, icon: iconMap[config.icon_name] || BookOpen })));
+      }
+    };
+
+    const loadAllProfiles = async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, name, email, avatar_url, role, user_tier, created_at');
+
+      if (error) {
+        console.error('Error loading all profiles from Supabase:', error);
+        // Fallback to default local students/staff if Supabase fails
+        setStudents(getInitialState('students', []));
+        setStaffUsers(getInitialState('staffUsers', []));
+      } else if (data) {
+        const loadedStudents: Student[] = [];
+        const loadedStaffUsers: StaffUser[] = [];
+
+        data.forEach(profile => {
+          const joinedDate = new Date(profile.created_at).toLocaleDateString('pt-BR');
+          if (profile.role === 'user' || !profile.role) { // Default to user if role is null/undefined
+            loadedStudents.push({
+              id: profile.id,
+              name: profile.name || profile.email,
+              email: profile.email,
+              avatarUrl: profile.avatar_url || `https://i.pravatar.cc/100?u=${profile.id}`,
+              tier: profile.user_tier || 'Grátis',
+              joinedDate: joinedDate,
+              progress: 0, // Progress will be calculated dynamically or fetched separately
+            });
+          } else {
+            loadedStaffUsers.push({
+              id: profile.id,
+              name: profile.name || profile.email,
+              email: profile.email,
+              avatarUrl: profile.avatar_url || `https://i.pravatar.cc/100?u=${profile.id}`,
+              role: profile.role as UserRole,
+              joinedDate: joinedDate,
+            });
+          }
+        });
+        setStudents(loadedStudents);
+        setStaffUsers(loadedStaffUsers);
+      }
+    };
+
+    loadGlobalSettings();
+    loadGlobalAnnouncement();
+    loadChapterConfigs();
+    loadAllProfiles();
+  }, []); // Run once on mount
+
   // --- Supabase Auth & User Data ---
   const {
     isAuthenticated, user, setUser, handleLogout, handleDeleteAccount,
@@ -130,8 +220,6 @@ const App: React.FC = () => {
   const canAccessSettings = hasAdminAccess || isProfessor;
 
   const handleUpdateProfile = async (updatedUser: UserProfile) => {
-    // This function is still in App.tsx because it updates the global 'user' state
-    // and also needs to update 'students' and 'staffUsers' global states.
     const { data: { user: authUser } } = await supabase.auth.getUser();
     if (!authUser) return;
 
@@ -146,6 +234,7 @@ const App: React.FC = () => {
       console.error('Error updating profile:', error);
     } else {
       setUser(updatedUser);
+      // Update local students/staff arrays to reflect name/avatar changes
       setStudents(prevStudents =>
         prevStudents.map(student =>
           student.email === oldEmail
@@ -166,27 +255,65 @@ const App: React.FC = () => {
   const chapters = useMemo<Chapter[]>(() => {
     return chapterConfigs.map(config => {
       const originalChapter = BOOK_CONTENT.find(c => c.id === config.id);
-      return { ...config, icon: iconMap[config.iconName] || BookOpen, sections: originalChapter ? originalChapter.sections : [] };
+      return { ...config, icon: iconMap[config.icon_name] || BookOpen, sections: originalChapter ? originalChapter.sections : [] };
     });
   }, [chapterConfigs]);
 
-  const handleUpdateChapterDetails = (chapterId: number, updates: { title: string; shortTitle: string; tier: UserTier; iconName: string; }) => {
-      setChapterConfigs(prev => prev.map(config => config.id === chapterId ? { ...config, ...updates } : config));
+  const handleUpdateChapterDetails = async (chapterId: number, updates: { title: string; shortTitle: string; tier: UserTier; iconName: string; }) => {
+      const { error } = await supabase
+        .from('chapter_configs')
+        .update({
+          title: updates.title,
+          short_title: updates.shortTitle,
+          tier: updates.tier,
+          icon_name: updates.iconName,
+        })
+        .eq('id', chapterId);
+      
+      if (error) console.error('Error updating chapter details:', error);
+      else setChapterConfigs(prev => prev.map(config => config.id === chapterId ? { ...config, ...updates } : config));
   };
 
-  const handleAddChapter = (details: { title: string; shortTitle: string; tier: UserTier; iconName: string; }) => {
-      setChapterConfigs(prev => {
-          const maxId = prev.reduce((max, chapter) => Math.max(max, chapter.id), -1);
-          return [...prev, { id: maxId + 1, ...details }];
-      });
+  const handleAddChapter = async (details: { title: string; shortTitle: string; tier: UserTier; iconName: string; }) => {
+      const maxId = chapterConfigs.reduce((max, chapter) => Math.max(max, chapter.id), -1);
+      const newChapterId = maxId + 1;
+      const { data, error } = await supabase
+        .from('chapter_configs')
+        .insert({
+          id: newChapterId,
+          title: details.title,
+          short_title: details.shortTitle,
+          tier: details.tier,
+          icon_name: details.iconName,
+        })
+        .select();
+
+      if (error) console.error('Error adding chapter:', error);
+      else if (data && data.length > 0) {
+        setChapterConfigs(prev => [...prev, { ...data[0], icon: iconMap[data[0].icon_name] || BookOpen }]);
+      }
   };
 
-  const handleChaptersReorder = (reorderedChapters: Chapter[]) => {
-      const newConfigs = reorderedChapters.map(chapter => ({
-          id: chapter.id, title: chapter.title, shortTitle: chapter.shortTitle, tier: chapter.tier,
-          iconName: Object.keys(iconMap).find(key => iconMap[key] === chapter.icon) || 'BookOpen',
+  const handleChaptersReorder = async (reorderedChapters: Chapter[]) => {
+      // This is a bit complex for direct Supabase reorder as it implies updating 'id' or 'order' column.
+      // For simplicity, we'll just update the local state for now, or if a specific 'order' column existed, we'd update that.
+      // Assuming 'id' is fixed, reordering means updating other properties or a separate 'order' column.
+      // If 'id' is the order, then it's a full re-insert or update of all IDs.
+      // For now, we'll update the local state and assume the 'id' is fixed.
+      const updates = reorderedChapters.map((chapter, index) => ({
+        id: chapter.id,
+        title: chapter.title, // Keep existing title
+        short_title: chapter.shortTitle, // Keep existing shortTitle
+        tier: chapter.tier, // Keep existing tier
+        icon_name: Object.keys(iconMap).find(key => iconMap[key] === chapter.icon) || 'BookOpen', // Keep existing icon
+        // If there was an 'order' column, it would be updated here: order: index
       }));
-      setChapterConfigs(newConfigs);
+
+      // Since there's no explicit 'order' column, reordering means updating the local representation.
+      // If we wanted to persist the *order* in Supabase, we'd need an `order` column in `chapter_configs`
+      // and then update all rows with their new order.
+      // For now, we'll just update the local state.
+      setChapterConfigs(reorderedChapters.map(chapter => ({ ...chapter, iconName: Object.keys(iconMap).find(key => iconMap[key] === chapter.icon) || 'BookOpen' })));
   };
 
     const handleUpdateStudentTier = async (studentId: string, newTier: UserTier) => {
@@ -207,15 +334,18 @@ const App: React.FC = () => {
         else setStudents(prevStudents => prevStudents.map(student => student.id === studentId ? { ...student, ...details } : student));
     };
 
-    const handleAddStudent = () => {
+    const handleAddStudent = async () => {
         // This action is typically handled by Supabase Auth signup or admin panel
         // For now, keep local state update for demonstration
-        const newId = `usr_${Date.now()}`;
+        const newId = `usr_${Date.now()}`; // This ID would normally come from Supabase Auth
         const newStudent: Student = {
             id: newId, name: 'Novo Usuário', email: `usuario_${Date.now().toString().slice(-5)}@example.com`,
             avatarUrl: `https://i.pravatar.cc/100?u=${newId}`, tier: 'Grátis',
             joinedDate: new Date().toLocaleDateString('pt-BR'), progress: 0,
         };
+        // In a real app, you'd create the user via Supabase Auth admin API,
+        // which would then trigger the handle_new_user function to create a profile.
+        // For this demo, we'll just add to local state and assume a profile exists.
         setStudents(prevStudents => [newStudent, ...prevStudents]);
     };
 
@@ -248,14 +378,17 @@ const App: React.FC = () => {
         else setStaffUsers(prev => prev.map(user => user.id === userId ? { ...user, ...details } : user));
     };
 
-    const handleAddStaffUser = (details: { name: string; email: string; role: UserRole; }) => {
+    const handleAddStaffUser = async (details: { name: string; email: string; role: UserRole; }) => {
         // This action is typically handled by Supabase Auth signup + admin panel
         // For now, keep local state update for demonstration
-        const newId = `staff_${Date.now()}`;
+        const newId = `staff_${Date.now()}`; // This ID would normally come from Supabase Auth
         const newUser: StaffUser = {
             id: newId, ...details, avatarUrl: `https://i.pravatar.cc/100?u=${details.email}`,
             joinedDate: new Date().toLocaleDateString('pt-BR'),
         };
+        // In a real app, you'd create the user via Supabase Auth admin API,
+        // which would then trigger the handle_new_user function to create a profile.
+        // For this demo, we'll just add to local state and assume a profile exists.
         setStaffUsers(prev => [newUser, ...prev]);
     };
 
@@ -274,7 +407,7 @@ const App: React.FC = () => {
         const fullState = {
             formData, notes, tasks, weeklyGoals, favoriteChapterIds: Array.from(favoriteChapterIds),
             userTier, adminSettings, globalAnnouncement, students, staffUsers,
-            mainColumnWidgets, sidebarColumnWidgets, widgetTiers, chapterConfigs,
+            mainColumnWidgets: adminSettings.mainColumnWidgets, sidebarColumnWidgets: adminSettings.sidebarColumnWidgets, widgetTiers: adminSettings.widgetTiers, chapterConfigs,
         };
         console.log("===============================");
         console.log("ESTADO ATUAL DA APLICAÇÃO (JSON)");
@@ -292,6 +425,8 @@ const App: React.FC = () => {
   }, [view, canAccessSettings]);
   
   useEffect(() => {
+    // This check is now less critical as students/staff are loaded from Supabase profiles
+    // but still good for ensuring no accidental duplicates if local state was used.
     const staffEmails = new Set(staffUsers.map(staff => staff.email));
     if (students.some(student => staffEmails.has(student.email))) {
       console.warn("Detected staff members in the student list. Cleaning up...");
@@ -299,15 +434,66 @@ const App: React.FC = () => {
     }
   }, [students, staffUsers]);
 
-  const handlePublishAnnouncement = (announcement: Announcement | null) => {
+  const handleAdminSettingChange = async (key: keyof typeof adminSettings, value: any) => {
+    const newSettings = { ...adminSettings, [key]: value };
+    setAdminSettings(newSettings);
+
+    const { error } = await supabase
+      .from('admin_settings')
+      .update({ [key]: value })
+      .eq('id', adminSettings.id); // Assuming adminSettings has an ID from Supabase
+    if (error) console.error(`Error updating admin setting ${key}:`, error);
+  };
+
+  const handlePublishAnnouncement = async (announcement: Announcement | null) => {
       setGlobalAnnouncement(announcement);
-      if (announcement) setIsBannerDismissed(false);
-      if (announcement && announcement.message && (announcement.displayType === 'notification' || announcement.displayType === 'both')) {
-          const newNotification: GlobalNotification = { id: `global_${Date.now()}`, message: announcement.message };
-          setGlobalNotifications(prev => [newNotification, ...prev]);
-          // setIsBellRinging(true); // Managed by useReminders
-          // setTimeout(() => setIsBellRinging(false), 1000); // Managed by useReminders
+      if (announcement) setIsBannerDismissed(false); // Reset banner dismissal on new announcement
+
+      if (announcement && announcement.message) {
+          const { error } = await supabase
+            .from('global_announcements')
+            .upsert({ id: globalAnnouncement?.id || 'single_row_id', message: announcement.message, display_type: announcement.displayType }, { onConflict: 'id' });
+          if (error) console.error('Error publishing announcement:', error);
+
+          if (announcement.displayType === 'notification' || announcement.displayType === 'both') {
+              const newNotification: GlobalNotification = { id: `global_${Date.now()}`, message: announcement.message };
+              setGlobalNotifications(prev => [newNotification, ...prev]);
+          }
+      } else {
+          // If announcement is null or empty, delete it from Supabase
+          const { error } = await supabase
+            .from('global_announcements')
+            .delete()
+            .eq('id', globalAnnouncement?.id || 'single_row_id'); // Use the actual ID if available
+          if (error) console.error('Error deleting announcement:', error);
       }
+  };
+
+  const handleMainColumnWidgetsReorder = async (newOrder: string[]) => {
+    setAdminSettings(prev => ({ ...prev, mainColumnWidgets: newOrder }));
+    const { error } = await supabase
+      .from('admin_settings')
+      .update({ main_column_widgets: newOrder })
+      .eq('id', adminSettings.id);
+    if (error) console.error('Error reordering main column widgets:', error);
+  };
+
+  const handleSidebarColumnWidgetsReorder = async (newOrder: string[]) => {
+    setAdminSettings(prev => ({ ...prev, sidebarColumnWidgets: newOrder }));
+    const { error } = await supabase
+      .from('admin_settings')
+      .update({ sidebar_column_widgets: newOrder })
+      .eq('id', adminSettings.id);
+    if (error) console.error('Error reordering sidebar column widgets:', error);
+  };
+
+  const handleWidgetTiersChange = async (newTiers: Record<string, UserTier>) => {
+    setAdminSettings(prev => ({ ...prev, widgetTiers: newTiers }));
+    const { error } = await supabase
+      .from('admin_settings')
+      .update({ widget_tiers: newTiers })
+      .eq('id', adminSettings.id);
+    if (error) console.error('Error changing widget tiers:', error);
   };
 
   const completedChapterIds = useMemo(() => {
@@ -584,21 +770,21 @@ const App: React.FC = () => {
                 tasks={tasks} onAddTask={handleAddTask} onToggleTask={handleToggleTask} onDeleteTask={handleDeleteTask} onSetTaskReminder={handleSetTaskReminder}
                 favoriteChapterIds={favoriteChapterIds} onToggleFavorite={handleToggleFavoriteChapter}
                 weeklyGoals={weeklyGoals} onAddWeeklyGoal={handleAddWeeklyGoal} onUpdateWeeklyGoal={handleUpdateWeeklyGoal} onDeleteWeeklyGoal={handleDeleteWeeklyGoal}
-                adminSettings={adminSettings} mainColumnWidgetOrder={mainColumnWidgets} sidebarColumnWidgetOrder={sidebarColumnWidgets}
-                widgetTiers={widgetTiers} userTier={userTier} onUpgradeClick={() => setIsUpgradeModalOpen(true)}
+                adminSettings={adminSettings} mainColumnWidgetOrder={adminSettings.mainColumnWidgets} sidebarColumnWidgetOrder={adminSettings.sidebarColumnWidgets}
+                widgetTiers={adminSettings.widgetTiers} userTier={userTier} onUpgradeClick={() => setIsUpgradeModalOpen(true)}
               />
             )}
             {view === 'settings' && canAccessSettings && (
                 <Settings 
-                    adminSettings={adminSettings} onAdminSettingsChange={setAdminSettings}
+                    adminSettings={adminSettings} onAdminSettingsChange={handleAdminSettingChange}
                     globalAnnouncement={globalAnnouncement} onGlobalAnnouncementChange={handlePublishAnnouncement}
                     chapters={chapters} onChaptersReorder={handleChaptersReorder} onChapterUpdate={handleUpdateChapterDetails} onAddChapter={handleAddChapter}
-                    mainColumnWidgets={mainColumnWidgets} onMainColumnWidgetsReorder={setMainColumnWidgets}
-                    sidebarColumnWidgets={sidebarColumnWidgets} onSidebarColumnWidgetsReorder={setSidebarColumnWidgets}
-                    widgetTiers={widgetTiers} onWidgetTiersChange={setWidgetTiers}
+                    mainColumnWidgets={adminSettings.mainColumnWidgets} onMainColumnWidgetsReorder={handleMainColumnWidgetsReorder}
+                    sidebarColumnWidgets={adminSettings.sidebarColumnWidgets} onSidebarColumnWidgetsReorder={handleSidebarColumnWidgetsReorder}
+                    widgetTiers={adminSettings.widgetTiers} onWidgetTiersChange={handleWidgetTiersChange}
                     students={students} onUpdateStudentTier={handleUpdateStudentTier} onUpdateStudentDetails={handleUpdateStudentDetails} onAddStudent={handleAddStudent} onDeleteStudent={handleDeleteStudent}
                     staffUsers={staffUsers} onUpdateStaffUserRole={handleUpdateStaffUserRole} onAddStaffUser={handleAddStaffUser} onDeleteStaffUser={handleDeleteStaffUser} onUpdateStaffUserDetails={handleUpdateStaffUserDetails}
-                    onExportState={handleExportState} userTier={userTier} isUpgradeBannerHidden={isUpgradeBannerHidden} onIsUpgradeBannerHiddenChange={setIsUpgradeBannerHidden}
+                    onExportState={handleExportState} userTier={userTier} isUpgradeBannerHidden={isUpgradeBannerHidden} onIsUpgradeBannerHiddenChange={setIsBannerDismissed} // isUpgradeBannerHidden is now managed by isBannerDismissed
                     currentUser={currentUser}
                 />
             )}

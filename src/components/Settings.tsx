@@ -382,8 +382,11 @@ interface SettingsProps {
         socialModuleEnabled: boolean;
         maintenanceMode: boolean;
         newSignups: boolean;
+        mainColumnWidgets: string[];
+        sidebarColumnWidgets: string[];
+        widgetTiers: Record<string, UserTier>;
     };
-    onAdminSettingsChange: (settings: SettingsProps['adminSettings']) => void;
+    onAdminSettingsChange: (key: keyof SettingsProps['adminSettings'], value: any) => void;
     globalAnnouncement: Announcement | null;
     onGlobalAnnouncementChange: (announcement: Announcement | null) => void;
     chapters: Chapter[];
@@ -443,7 +446,7 @@ const EditChapterModal: React.FC<{
     }, []);
     
     // Fix: Safely access properties on `chapter` which could be an empty object for a new chapter.
-    const currentIconName = 'icon' in chapter ? (Object.entries(iconMap).find(([, component]) => component === chapter.icon)?.[0] || Object.keys(iconMap)[0]) : Object.keys(iconMap)[0];
+    const currentIconName = 'icon_name' in chapter ? chapter.icon_name : Object.keys(iconMap)[0];
     const [iconName, setIconName] = useState(currentIconName);
 
     const handleSave = () => {
@@ -976,6 +979,11 @@ export const Settings: React.FC<SettingsProps> = ({
         variant: 'primary',
     });
 
+    useEffect(() => {
+        setAnnouncementText(globalAnnouncement?.message || '');
+        setAnnouncementType(globalAnnouncement?.displayType || 'banner');
+    }, [globalAnnouncement]);
+
     const closeConfirmationModal = () => {
         setConfirmationState({ isOpen: false, title: '', message: null, onConfirm: null, variant: 'primary' });
     };
@@ -1028,16 +1036,8 @@ export const Settings: React.FC<SettingsProps> = ({
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
-    const handleAdminSettingChange = (key: keyof typeof adminSettings, value: boolean) => {
-        onAdminSettingsChange({ ...adminSettings, [key]: value });
-    };
-
-    const handlePublishAnnouncement = () => {
-        if (announcementText.trim()) {
-            onGlobalAnnouncementChange({ message: announcementText, displayType: announcementType as any });
-        } else {
-            onGlobalAnnouncementChange(null);
-        }
+    const handlePublishAnnouncementClick = () => {
+        onGlobalAnnouncementChange(announcementText.trim() ? { message: announcementText, displayType: announcementType } : null);
     };
     
     const moveItem = <T,>(list: T[], index: number, direction: 'up' | 'down'): T[] => {
@@ -1123,7 +1123,7 @@ export const Settings: React.FC<SettingsProps> = ({
             label: "Modo de Manutenção",
             description: "Coloca um banner de aviso em todo o app e desativa algumas funções.",
             isEnabled: adminSettings.maintenanceMode,
-            onToggle: () => handleAdminSettingChange('maintenanceMode', !adminSettings.maintenanceMode),
+            onToggle: () => onAdminSettingsChange('maintenanceMode', !adminSettings.maintenanceMode),
             isVisible: true,
         },
         {
@@ -1131,7 +1131,7 @@ export const Settings: React.FC<SettingsProps> = ({
             label: "Módulo Social (Amigos)",
             description: "Ativa ou desativa o widget de amigos no dashboard.",
             isEnabled: adminSettings.socialModuleEnabled,
-            onToggle: () => handleAdminSettingChange('socialModuleEnabled', !adminSettings.socialModuleEnabled),
+            onToggle: () => onAdminSettingsChange('socialModuleEnabled', !adminSettings.socialModuleEnabled),
             isVisible: true,
         },
         {
@@ -1147,7 +1147,7 @@ export const Settings: React.FC<SettingsProps> = ({
             label: "Permitir Novos Cadastros",
             description: "Controla se novos usuários podem se cadastrar na plataforma.",
             isEnabled: adminSettings.newSignups,
-            onToggle: () => handleAdminSettingChange('newSignups', !adminSettings.newSignups),
+            onToggle: () => onAdminSettingsChange('newSignups', !adminSettings.newSignups),
             isVisible: true,
         },
     ];
@@ -1295,7 +1295,7 @@ export const Settings: React.FC<SettingsProps> = ({
                                     ))}
                                 </div>
                             </div>
-                            <button onClick={handlePublishAnnouncement} className="w-full flex items-center justify-center gap-2 px-4 py-2 font-semibold bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+                            <button onClick={handlePublishAnnouncementClick} className="w-full flex items-center justify-center gap-2 px-4 py-2 font-semibold bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
                                 <Save className="w-4 h-4" /> Publicar / Atualizar Comunicado
                             </button>
                         </div>
