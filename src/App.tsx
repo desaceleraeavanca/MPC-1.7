@@ -1,18 +1,18 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Sidebar } from '@/src/components/Sidebar'; // Fixed import path
-import { ContentDisplay } from '@/src/components/ContentDisplay'; // Fixed import path
-import { Dashboard } from '@/src/components/Dashboard'; // Fixed import path
-import { Settings } from '@/src/components/Settings'; // Fixed import path
-import { ChapterSummaries } from '@/src/components/ChapterSummaries'; // Fixed import path
-import { Profile } from '@/src/components/Profile'; // Fixed import path
-import { UpgradeModal } from '@/src/components/UpgradeModal'; // Fixed import path
-import { Login } from '@/src/components/Login'; // Fixed import path
-import { Plans } from '@/src/components/Plans'; // Fixed import path
-import { BOOK_CONTENT, CHAPTER_COMPLETION_REQUIREMENTS, tierInfo } from '@/src/constants'; // Fixed import path
-import { SEARCHABLE_TEXT } from '@/src/searchableContent'; // Fixed import path
-import type { Chapter, SearchResult, Note, Task, WeeklyGoal, UserTier, UserProfile, GlobalNotification, Announcement, Student, StaffUser, UserRole } from '@/src/types'; // Fixed import path
-import { Bell, BookOpen, Cog, FileText, Eye, Home, User, LogOut, X, AlertTriangle, Megaphone, ChevronDown, CheckCircle, Layers } from '@/src/components/Icons'; // Fixed import path
-import { iconMap } from '@/src/components/Icons'; // Fixed import path
+import { Sidebar } from '@/src/components/Sidebar';
+import { ContentDisplay } from '@/src/components/ContentDisplay';
+import { Dashboard } from '@/src/components/Dashboard';
+import { Settings } from '@/src/components/Settings';
+import { ChapterSummaries } from '@/src/components/ChapterSummaries';
+import { Profile } from '@/src/components/Profile';
+import { UpgradeModal } from '@/src/components/UpgradeModal';
+import { Login } from '@/src/components/Login';
+import { Plans } from '@/src/components/Plans';
+import { BOOK_CONTENT, CHAPTER_COMPLETION_REQUIREMENTS, tierInfo } from '@/src/constants';
+import { SEARCHABLE_TEXT } from '@/src/searchableContent';
+import type { Chapter, SearchResult, Note, Task, WeeklyGoal, UserTier, UserProfile, GlobalNotification, Announcement, Student, StaffUser, UserRole } from '@/src/types';
+import { Bell, BookOpen, Cog, FileText, Eye, Home, User, LogOut, X, AlertTriangle, Megaphone, ChevronDown, CheckCircle, Layers } from '@/src/components/Icons';
+import { iconMap } from '@/src/components/Icons';
 import { supabase } from '@/src/integrations/supabase/client';
 
 // --- Persistence Helper ---
@@ -84,28 +84,64 @@ const App: React.FC = () => {
   useEffect(() => { localStorage.setItem('widgetTiers', JSON.stringify(widgetTiers)); }, [widgetTiers]);
   useEffect(() => { localStorage.setItem('chapterConfigs', JSON.stringify(chapterConfigs)); }, [chapterConfigs]);
   
-  // --- User-Specific State Persistence ---
-  const userEmailKey = isAuthenticated ? user.email : null;
-  useEffect(() => { if (userEmailKey) localStorage.setItem(`${userEmailKey}_formData`, JSON.stringify(formData)); }, [formData, userEmailKey]);
-  useEffect(() => { if (userEmailKey) localStorage.setItem(`${userEmailKey}_notes`, JSON.stringify(notes)); }, [notes, userEmailKey]);
-  useEffect(() => { if (userEmailKey) localStorage.setItem(`${userEmailKey}_tasks`, JSON.stringify(tasks)); }, [tasks, userEmailKey]);
-  useEffect(() => { if (userEmailKey) localStorage.setItem(`${userEmailKey}_weeklyGoals`, JSON.stringify(weeklyGoals)); }, [weeklyGoals, userEmailKey]);
-  useEffect(() => { if (userEmailKey) localStorage.setItem(`${userEmailKey}_favoriteChapterIds`, JSON.stringify(Array.from(favoriteChapterIds))); }, [favoriteChapterIds, userEmailKey]);
-  useEffect(() => { if (userEmailKey) localStorage.setItem(`${userEmailKey}_isBannerDismissed`, JSON.stringify(isBannerDismissed)); }, [isBannerDismissed, userEmailKey]);
-  useEffect(() => { if (userEmailKey) localStorage.setItem(`${userEmailKey}_userTier`, JSON.stringify(userTier)); }, [userTier, userEmailKey]);
-  useEffect(() => { if (userEmailKey) localStorage.setItem(`${userEmailKey}_isUpgradeBannerHidden`, JSON.stringify(isUpgradeBannerHidden)); }, [isUpgradeBannerHidden, userEmailKey]);
-
   // --- Data Loading and Resetting ---
-  const loadUserData = (email: string) => {
-      setFormData(getInitialState(`${email}_formData`, {}));
-      setNotes(getInitialState(`${email}_notes`, []));
-      setTasks(getInitialState(`${email}_tasks`, []));
-      setWeeklyGoals(getInitialState(`${email}_weeklyGoals`, []));
-      const favsArray = getInitialState<number[]>(`${email}_favoriteChapterIds`, []);
-      setFavoriteChapterIds(new Set(favsArray));
-      setIsBannerDismissed(getInitialState(`${email}_isBannerDismissed`, false));
-      setUserTier(getInitialState(`${email}_userTier`, 'Grátis'));
-      setIsUpgradeBannerHidden(getInitialState(`${email}_isUpgradeBannerHidden`, true));
+  const loadUserData = async (userId: string, userEmail: string) => {
+      // Fetch profile data
+      const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('user_tier, is_banner_dismissed, is_upgrade_banner_hidden')
+          .eq('id', userId)
+          .single();
+
+      if (profileError) console.error('Error fetching user profile settings:', profileError);
+
+      setUserTier(profileData?.user_tier || 'Grátis');
+      setIsBannerDismissed(profileData?.is_banner_dismissed || false);
+      setIsUpgradeBannerHidden(profileData?.is_upgrade_banner_hidden || true);
+
+      // Fetch notes
+      const { data: notesData, error: notesError } = await supabase
+          .from('user_notes')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
+      if (notesError) console.error('Error fetching notes:', notesError);
+      setNotes(notesData || []);
+
+      // Fetch tasks
+      const { data: tasksData, error: tasksError } = await supabase
+          .from('user_tasks')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
+      if (tasksError) console.error('Error fetching tasks:', tasksError);
+      setTasks(tasksData || []);
+
+      // Fetch weekly goals
+      const { data: goalsData, error: goalsError } = await supabase
+          .from('user_weekly_goals')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
+      if (goalsError) console.error('Error fetching weekly goals:', goalsError);
+      setWeeklyGoals(goalsData || []);
+
+      // Fetch form data
+      const { data: formDataArray, error: formDataError } = await supabase
+          .from('user_form_data')
+          .select('key, value')
+          .eq('user_id', userId);
+      if (formDataError) console.error('Error fetching form data:', formDataError);
+      const loadedFormData = formDataArray ? formDataArray.reduce((acc, item) => ({ ...acc, [item.key]: item.value }), {}) : {};
+      setFormData(loadedFormData);
+
+      // Fetch favorite chapters
+      const { data: favChaptersData, error: favChaptersError } = await supabase
+          .from('user_favorite_chapters')
+          .select('chapter_id')
+          .eq('user_id', userId);
+      if (favChaptersError) console.error('Error fetching favorite chapters:', favChaptersError);
+      setFavoriteChapterIds(new Set(favChaptersData?.map(item => item.chapter_id) || []));
   };
 
   const resetUserState = () => {
@@ -143,15 +179,16 @@ const App: React.FC = () => {
         const staffRecord = staffUsers.find(s => s.email === userProfile.email);
         if (staffRecord) {
             setUserTier('Completo');
-            loadUserData(userProfile.email);
+            loadUserData(session.user.id, userProfile.email);
             setIsAuthenticated(true);
             return;
         }
 
         const studentRecord = students.find(s => s.email === userProfile.email);
         if (studentRecord) {
-            setUserTier(getInitialState(`${userProfile.email}_userTier`, studentRecord.tier || 'Grátis'));
-            loadUserData(userProfile.email);
+            // For students, load tier from Supabase profile, fallback to studentRecord or 'Grátis'
+            setUserTier(profile?.user_tier || studentRecord.tier || 'Grátis');
+            loadUserData(session.user.id, userProfile.email);
         } else {
             resetUserState();
             const newStudent: Student = {
@@ -181,6 +218,82 @@ const App: React.FC = () => {
       subscription.unsubscribe();
     };
   }, [students, staffUsers]); // Add dependencies to re-run if student/staff list changes
+
+  // --- User-Specific State Persistence to Supabase ---
+  // These effects will trigger updates to Supabase whenever the local state changes
+  useEffect(() => {
+    const saveProfileSettings = async () => {
+      if (!isAuthenticated || !user.email) return;
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (!authUser) return;
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          user_tier: userTier,
+          is_banner_dismissed: isBannerDismissed,
+          is_upgrade_banner_hidden: isUpgradeBannerHidden,
+        })
+        .eq('id', authUser.id);
+
+      if (error) console.error('Error saving profile settings:', error);
+    };
+    saveProfileSettings();
+  }, [isAuthenticated, user.email, userTier, isBannerDismissed, isUpgradeBannerHidden]);
+
+  useEffect(() => {
+    const saveFormData = async () => {
+      if (!isAuthenticated || !user.email) return;
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (!authUser) return;
+
+      // Iterate over formData and upsert each key-value pair
+      for (const key in formData) {
+        const value = formData[key];
+        const { error } = await supabase
+          .from('user_form_data')
+          .upsert({ user_id: authUser.id, key, value })
+          .eq('user_id', authUser.id)
+          .eq('key', key);
+        if (error) console.error(`Error saving form data for key ${key}:`, error);
+      }
+    };
+    saveFormData();
+  }, [isAuthenticated, user.email, formData]);
+
+  useEffect(() => {
+    const saveFavoriteChapters = async () => {
+      if (!isAuthenticated || !user.email) return;
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (!authUser) return;
+
+      // First, delete all existing favorites for the user
+      const { error: deleteError } = await supabase
+        .from('user_favorite_chapters')
+        .delete()
+        .eq('user_id', authUser.id);
+
+      if (deleteError) {
+        console.error('Error deleting old favorite chapters:', deleteError);
+        return;
+      }
+
+      // Then, insert the current set of favorites
+      const favoritesToInsert = Array.from(favoriteChapterIds).map(chapter_id => ({
+        user_id: authUser.id,
+        chapter_id,
+      }));
+
+      if (favoritesToInsert.length > 0) {
+        const { error: insertError } = await supabase
+          .from('user_favorite_chapters')
+          .insert(favoritesToInsert);
+        if (insertError) console.error('Error inserting new favorite chapters:', insertError);
+      }
+    };
+    saveFavoriteChapters();
+  }, [isAuthenticated, user.email, favoriteChapterIds]);
+
 
   // --- Non-Persisted State ---
   const [selectedChapterId, setSelectedChapterId] = useState<number>(0);
@@ -263,15 +376,27 @@ const App: React.FC = () => {
       setChapterConfigs(newConfigs);
   };
 
-    const handleUpdateStudentTier = (studentId: string, newTier: UserTier) => {
-        setStudents(prevStudents => prevStudents.map(student => student.id === studentId ? { ...student, tier: newTier } : student));
+    const handleUpdateStudentTier = async (studentId: string, newTier: UserTier) => {
+        const { error } = await supabase
+            .from('profiles')
+            .update({ user_tier: newTier })
+            .eq('id', studentId);
+        if (error) console.error('Error updating student tier:', error);
+        else setStudents(prevStudents => prevStudents.map(student => student.id === studentId ? { ...student, tier: newTier } : student));
     };
     
-    const handleUpdateStudentDetails = (studentId: string, details: { name: string; email: string }) => {
-        setStudents(prevStudents => prevStudents.map(student => student.id === studentId ? { ...student, ...details } : student));
+    const handleUpdateStudentDetails = async (studentId: string, details: { name: string; email: string }) => {
+        const { error } = await supabase
+            .from('profiles')
+            .update({ name: details.name }) // Email cannot be updated directly via profiles table
+            .eq('id', studentId);
+        if (error) console.error('Error updating student details:', error);
+        else setStudents(prevStudents => prevStudents.map(student => student.id === studentId ? { ...student, ...details } : student));
     };
 
     const handleAddStudent = () => {
+        // This action is typically handled by Supabase Auth signup or admin panel
+        // For now, keep local state update for demonstration
         const newId = `usr_${Date.now()}`;
         const newStudent: Student = {
             id: newId, name: 'Novo Usuário', email: `usuario_${Date.now().toString().slice(-5)}@example.com`,
@@ -281,19 +406,38 @@ const App: React.FC = () => {
         setStudents(prevStudents => [newStudent, ...prevStudents]);
     };
 
-    const handleDeleteStudent = (studentId: string) => {
-        setStudents(prevStudents => prevStudents.filter(student => student.id !== studentId));
+    const handleDeleteStudent = async (studentId: string) => {
+        // This should ideally trigger the delete-user edge function for full cleanup
+        // For now, we'll remove from local state and potentially from profiles table if it exists
+        const { error } = await supabase
+            .from('profiles')
+            .delete()
+            .eq('id', studentId);
+        if (error) console.error('Error deleting student profile:', error);
+        else setStudents(prevStudents => prevStudents.filter(student => student.id !== studentId));
     };
 
-    const handleUpdateStaffUserRole = (userId: string, newRole: UserRole) => {
-        setStaffUsers(prev => prev.map(user => user.id === userId ? { ...user, role: newRole } : user));
+    const handleUpdateStaffUserRole = async (userId: string, newRole: UserRole) => {
+        const { error } = await supabase
+            .from('profiles')
+            .update({ role: newRole })
+            .eq('id', userId);
+        if (error) console.error('Error updating staff role:', error);
+        else setStaffUsers(prev => prev.map(user => user.id === userId ? { ...user, role: newRole } : user));
     };
 
-    const handleUpdateStaffUserDetails = (userId: string, details: { name: string; email: string; }) => {
-        setStaffUsers(prev => prev.map(user => user.id === userId ? { ...user, ...details } : user));
+    const handleUpdateStaffUserDetails = async (userId: string, details: { name: string; email: string; }) => {
+        const { error } = await supabase
+            .from('profiles')
+            .update({ name: details.name }) // Email cannot be updated directly via profiles table
+            .eq('id', userId);
+        if (error) console.error('Error updating staff details:', error);
+        else setStaffUsers(prev => prev.map(user => user.id === userId ? { ...user, ...details } : user));
     };
 
     const handleAddStaffUser = (details: { name: string; email: string; role: UserRole; }) => {
+        // This action is typically handled by Supabase Auth signup + admin panel
+        // For now, keep local state update for demonstration
         const newId = `staff_${Date.now()}`;
         const newUser: StaffUser = {
             id: newId, ...details, avatarUrl: `https://i.pravatar.cc/100?u=${details.email}`,
@@ -302,8 +446,15 @@ const App: React.FC = () => {
         setStaffUsers(prev => [newUser, ...prev]);
     };
 
-    const handleDeleteStaffUser = (userId: string) => {
-        setStaffUsers(prev => prev.filter(user => user.id !== userId));
+    const handleDeleteStaffUser = async (userId: string) => {
+        // This should ideally trigger the delete-user edge function for full cleanup
+        // For now, we'll remove from local state and potentially from profiles table if it exists
+        const { error } = await supabase
+            .from('profiles')
+            .delete()
+            .eq('id', userId);
+        if (error) console.error('Error deleting staff profile:', error);
+        else setStaffUsers(prev => prev.filter(user => user.id !== userId));
     };
 
     const handleExportState = () => {
@@ -359,47 +510,124 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleInputChange = async (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
     const isCheckbox = type === 'checkbox';
     const inputValue = isCheckbox ? (e.target as HTMLInputElement).checked : value;
+    
     setFormData(prevData => ({ ...prevData, [name]: inputValue }));
+
+    // Persist individual form data to Supabase
+    if (isAuthenticated && user.email) {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (!authUser) return;
+
+      const { error } = await supabase
+        .from('user_form_data')
+        .upsert({ user_id: authUser.id, key: name, value: inputValue })
+        .eq('user_id', authUser.id)
+        .eq('key', name);
+      if (error) console.error(`Error saving form data for key ${name}:`, error);
+    }
   };
   
-  const handleAddNote = (content: string) => {
-    if (!content.trim()) return;
-    const newNote: Note = { id: `note_${Date.now()}`, content };
-    setNotes(prevNotes => [newNote, ...prevNotes]);
+  const handleAddNote = async (content: string) => {
+    if (!content.trim() || !isAuthenticated || !user.email) return;
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) return;
+
+    const { data, error } = await supabase
+      .from('user_notes')
+      .insert({ user_id: authUser.id, content })
+      .select();
+
+    if (error) console.error('Error adding note:', error);
+    else if (data) setNotes(prevNotes => [...data, ...prevNotes]);
   };
 
-  const handleEditNote = (id: string, content: string) => {
-    setNotes(prevNotes => prevNotes.map(note => (note.id === id ? { ...note, content } : note)));
+  const handleEditNote = async (id: string, content: string) => {
+    if (!isAuthenticated || !user.email) return;
+    const { error } = await supabase
+      .from('user_notes')
+      .update({ content })
+      .eq('id', id)
+      .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
+
+    if (error) console.error('Error editing note:', error);
+    else setNotes(prevNotes => prevNotes.map(note => (note.id === id ? { ...note, content } : note)));
   };
 
-  const handleDeleteNote = (id: string) => {
+  const handleDeleteNote = async (id: string) => {
+    if (!isAuthenticated || !user.email) return;
     if (window.confirm('Tem certeza que deseja excluir esta nota?')) {
-      setNotes(prevNotes => prevNotes.filter(note => note.id !== id));
+      const { error } = await supabase
+        .from('user_notes')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
+
+      if (error) console.error('Error deleting note:', error);
+      else setNotes(prevNotes => prevNotes.filter(note => note.id !== id));
     }
   };
 
-  const handleAddTask = (text: string) => {
-    if (!text.trim()) return;
-    const newTask: Task = { id: `task_${Date.now()}`, text, completed: false };
-    setTasks(prevTasks => [newTask, ...prevTasks]);
+  const handleAddTask = async (text: string) => {
+    if (!text.trim() || !isAuthenticated || !user.email) return;
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) return;
+
+    const { data, error } = await supabase
+      .from('user_tasks')
+      .insert({ user_id: authUser.id, text, completed: false })
+      .select();
+
+    if (error) console.error('Error adding task:', error);
+    else if (data) setTasks(prevTasks => [...data, ...prevTasks]);
   };
 
-  const handleToggleTask = (id: string) => {
-    setTasks(prevTasks => prevTasks.map(task => task.id === id ? { ...task, completed: !task.completed } : task));
-    setActiveReminders(prev => prev.filter(r => r.id !== id));
+  const handleToggleTask = async (id: string) => {
+    if (!isAuthenticated || !user.email) return;
+    const taskToToggle = tasks.find(task => task.id === id);
+    if (!taskToToggle) return;
+
+    const { error } = await supabase
+      .from('user_tasks')
+      .update({ completed: !taskToToggle.completed })
+      .eq('id', id)
+      .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
+
+    if (error) console.error('Error toggling task:', error);
+    else {
+      setTasks(prevTasks => prevTasks.map(task => task.id === id ? { ...task, completed: !task.completed } : task));
+      setActiveReminders(prev => prev.filter(r => r.id !== id));
+    }
   };
   
-  const handleDeleteTask = (id: string) => {
-    setTasks(prevTasks => prevTasks.filter(task => task.id !== id));
-    setActiveReminders(prev => prev.filter(r => r.id !== id));
+  const handleDeleteTask = async (id: string) => {
+    if (!isAuthenticated || !user.email) return;
+    const { error } = await supabase
+      .from('user_tasks')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
+
+    if (error) console.error('Error deleting task:', error);
+    else {
+      setTasks(prevTasks => prevTasks.filter(task => task.id !== id));
+      setActiveReminders(prev => prev.filter(r => r.id !== id));
+    }
   };
 
-  const handleSetTaskReminder = (id: string, reminder: string | null) => {
-    setTasks(prevTasks => prevTasks.map(task => task.id === id ? { ...task, reminder } : task));
+  const handleSetTaskReminder = async (id: string, reminder: string | null) => {
+    if (!isAuthenticated || !user.email) return;
+    const { error } = await supabase
+      .from('user_tasks')
+      .update({ reminder })
+      .eq('id', id)
+      .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
+
+    if (error) console.error('Error setting task reminder:', error);
+    else setTasks(prevTasks => prevTasks.map(task => task.id === id ? { ...task, reminder } : task));
   };
 
   const handleDismissReminder = (id: string) => {
@@ -407,27 +635,67 @@ const App: React.FC = () => {
     setShowRemindersDropdown(false);
   };
 
-  const handleToggleFavoriteChapter = (chapterId: number) => {
-    setFavoriteChapterIds(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(chapterId)) newSet.delete(chapterId);
-      else newSet.add(chapterId);
-      return newSet;
-    });
+  const handleToggleFavoriteChapter = async (chapterId: number) => {
+    if (!isAuthenticated || !user.email) return;
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) return;
+
+    const isCurrentlyFavorited = favoriteChapterIds.has(chapterId);
+
+    if (isCurrentlyFavorited) {
+      const { error } = await supabase
+        .from('user_favorite_chapters')
+        .delete()
+        .eq('user_id', authUser.id)
+        .eq('chapter_id', chapterId);
+      if (error) console.error('Error removing favorite chapter:', error);
+      else setFavoriteChapterIds(prev => { const newSet = new Set(prev); newSet.delete(chapterId); return newSet; });
+    } else {
+      const { error } = await supabase
+        .from('user_favorite_chapters')
+        .insert({ user_id: authUser.id, chapter_id: chapterId });
+      if (error) console.error('Error adding favorite chapter:', error);
+      else setFavoriteChapterIds(prev => { const newSet = new Set(prev); newSet.add(chapterId); return newSet; });
+    }
   };
 
-  const handleAddWeeklyGoal = (description: string, target: number) => {
-    if (!description.trim() || target <= 0) return;
-    const newGoal: WeeklyGoal = { id: `goal_${Date.now()}`, description, target, current: 0 };
-    setWeeklyGoals(prev => [newGoal, ...prev]);
+  const handleAddWeeklyGoal = async (description: string, target: number) => {
+    if (!description.trim() || target <= 0 || !isAuthenticated || !user.email) return;
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) return;
+
+    const { data, error } = await supabase
+      .from('user_weekly_goals')
+      .insert({ user_id: authUser.id, description, target, current: 0 })
+      .select();
+
+    if (error) console.error('Error adding weekly goal:', error);
+    else if (data) setWeeklyGoals(prev => [...data, ...prev]);
   };
 
-  const handleUpdateWeeklyGoal = (id: string, current: number) => {
-    setWeeklyGoals(prev => prev.map(goal => goal.id === id ? { ...goal, current: Math.max(0, Math.min(goal.target, current)) } : goal));
+  const handleUpdateWeeklyGoal = async (id: string, current: number) => {
+    if (!isAuthenticated || !user.email) return;
+    const clampedCurrent = Math.max(0, current); // Ensure current is not negative
+    const { error } = await supabase
+      .from('user_weekly_goals')
+      .update({ current: clampedCurrent })
+      .eq('id', id)
+      .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
+
+    if (error) console.error('Error updating weekly goal:', error);
+    else setWeeklyGoals(prev => prev.map(goal => goal.id === id ? { ...goal, current: clampedCurrent } : goal));
   };
 
-  const handleDeleteWeeklyGoal = (id: string) => {
-    setWeeklyGoals(prev => prev.filter(goal => goal.id !== id));
+  const handleDeleteWeeklyGoal = async (id: string) => {
+    if (!isAuthenticated || !user.email) return;
+    const { error } = await supabase
+      .from('user_weekly_goals')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
+
+    if (error) console.error('Error deleting weekly goal:', error);
+    else setWeeklyGoals(prev => prev.filter(goal => goal.id !== id));
   };
 
   const handlePublishAnnouncement = (announcement: Announcement | null) => {
@@ -509,19 +777,28 @@ const App: React.FC = () => {
   };
 
   const handleDeleteAccount = async () => {
-    // This is for self-deletion, which only clears local data and signs out.
-    // Actual user deletion from auth.users is an admin action via Edge Function.
-    const userEmailToDelete = user.email;
-    if (userEmailToDelete) {
-        localStorage.removeItem(`${userEmailToDelete}_formData`);
-        localStorage.removeItem(`${userEmailToDelete}_notes`);
-        localStorage.removeItem(`${userEmailToDelete}_tasks`);
-        localStorage.removeItem(`${userEmailToDelete}_weeklyGoals`);
-        localStorage.removeItem(`${userEmailToDelete}_favoriteChapterIds`);
-        localStorage.removeItem(`${userEmailToDelete}_isBannerDismissed`);
-        localStorage.removeItem(`${userEmailToDelete}_userTier`);
-        localStorage.removeItem(`${userEmailToDelete}_isUpgradeBannerHidden`);
-    }
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) return;
+
+    // Delete all user-specific data from Supabase tables
+    const { error: notesError } = await supabase.from('user_notes').delete().eq('user_id', authUser.id);
+    if (notesError) console.error('Error deleting user notes:', notesError);
+
+    const { error: tasksError } = await supabase.from('user_tasks').delete().eq('user_id', authUser.id);
+    if (tasksError) console.error('Error deleting user tasks:', tasksError);
+
+    const { error: goalsError } = await supabase.from('user_weekly_goals').delete().eq('user_id', authUser.id);
+    if (goalsError) console.error('Error deleting user weekly goals:', goalsError);
+
+    const { error: formDataError } = await supabase.from('user_form_data').delete().eq('user_id', authUser.id);
+    if (formDataError) console.error('Error deleting user form data:', formDataError);
+
+    const { error: favChaptersError } = await supabase.from('user_favorite_chapters').delete().eq('user_id', authUser.id);
+    if (favChaptersError) console.error('Error deleting user favorite chapters:', favChaptersError);
+
+    const { error: profileError } = await supabase.from('profiles').delete().eq('id', authUser.id);
+    if (profileError) console.error('Error deleting user profile:', profileError);
+
     await handleLogout();
   };
 
