@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Produtividade Caótica SaaS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.1.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
+    "react/": "https://aistudiocdn.com/react@^19.1.1/",
+    "react-dom": "https://aistudiocdn.com/react-dom@^19.1.1"
+  }
+}
+</script>
+<style>
+  html {
+    color-scheme: light;
+  }
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  .animate-fadeInUp {
+    animation: fadeInUp 0.4s ease-out forwards;
+  }
+
+  @keyframes scaleIn {
+    from {
+      opacity: 0;
+      transform: scale(0.5);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  .animate-scaleIn {
+    animation: scaleIn 0.3s ease-out forwards;
+  }
+  
+  @keyframes ring {
+    0% { transform: rotate(0); }
+    10%, 30%, 50%, 70%, 90% { transform: rotate(-10deg); }
+    20%, 40%, 60%, 80% { transform: rotate(10deg); }
+  }
+  .animate-ring {
+    animation: ring 1s ease-in-out;
+  }
+
+  /* Enhanced checklist & exercise item styles */
+  .checklist-item-card, .exercise-step-card {
+    transition: background-color 0.3s ease-out, border-color 0.3s ease-out;
+  }
+  .checklist-item-card.is-complete, .exercise-step-card.is-complete {
+    border-color: #a7f3d0; /* emerald-200 */
+    background-color: #f0fdf4; /* green-50 */
+  }
+  .checklist-item-card.is-complete .checklist-icon {
+    background-color: #10b981; /* emerald-500 */
+    color: white;
+    border-color: #10b981;
+  }
+  .checklist-item-card.is-complete .checklist-icon > svg {
+    animation: scaleIn 0.3s ease-out forwards;
+  }
+  .checklist-item-card.is-complete .checklist-item-text {
+     color: #64748b; /* slate-500 */
+     transition: color 0.3s ease-out;
+  }
+
+  .text-shadow {
+    text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.5);
+  }
+</style>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
