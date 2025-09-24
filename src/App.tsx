@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Sidebar } from '@/src/components/Sidebar';
 import { ContentDisplay } from '@/src/components/ContentDisplay';
 import { Dashboard } from '@/src/components/Dashboard';
@@ -10,18 +10,23 @@ import { Login } from '@/src/components/Login';
 import { Plans } from '@/src/components/Plans';
 import { BOOK_CONTENT, CHAPTER_COMPLETION_REQUIREMENTS, tierInfo } from '@/src/constants';
 import { SEARCHABLE_TEXT } from '@/src/searchableContent';
-import type { Chapter, SearchResult, Note, Task, WeeklyGoal, UserTier, UserProfile, GlobalNotification, Announcement, Student, StaffUser, UserRole } from '@/src/types';
+import type { Chapter, SearchResult, GlobalNotification, Announcement, Student, StaffUser, UserRole } from '@/src/types';
 import { Bell, BookOpen, Cog, FileText, Eye, Home, User, LogOut, X, AlertTriangle, Megaphone, ChevronDown, CheckCircle, Layers } from '@/src/components/Icons';
 import { iconMap } from '@/src/components/Icons';
-import { supabase } from '@/src/integrations/supabase/client';
 
-// --- Persistence Helper ---
+// Custom Hooks
+import { useSupabaseAuth } from '@/src/hooks/useSupabaseAuth';
+import { useSupabaseDataPersistence } from '@/src/hooks/useSupabaseDataPersistence';
+import { useReminders } from '@/src/hooks/useReminders';
+import { useClickOutside } from '@/src/hooks/useClickOutside';
+import { useUserActions } from '@/src/hooks/useUserActions';
+
+// --- Persistence Helper (for global/admin state only) ---
 const getInitialState = <T,>(key: string, defaultValue: T): T => {
   try {
     const storedValue = localStorage.getItem(key);
     if (storedValue !== null) {
       const parsed = JSON.parse(storedValue);
-      // Special handling for Sets stored as arrays
       if (defaultValue instanceof Set && Array.isArray(parsed)) {
         return new Set(parsed) as T;
       }
@@ -35,20 +40,6 @@ const getInitialState = <T,>(key: string, defaultValue: T): T => {
 
 
 const App: React.FC = () => {
-  // --- Session State (managed by Supabase) ---
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [user, setUser] = useState<UserProfile>({ name: '', email: '', avatarUrl: '' });
-
-  // --- User-Specific State (loaded on login, persisted under user's key) ---
-  const [formData, setFormData] = useState<Record<string, any>>({});
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [weeklyGoals, setWeeklyGoals] = useState<WeeklyGoal[]>([]);
-  const [favoriteChapterIds, setFavoriteChapterIds] = useState<Set<number>>(new Set());
-  const [isBannerDismissed, setIsBannerDismissed] = useState<boolean>(false);
-  const [userTier, setUserTier] = useState<UserTier>('Grátis');
-  const [isUpgradeBannerHidden, setIsUpgradeBannerHidden] = useState<boolean>(true);
-
   // --- Global App State (persisted with static keys) ---
   const [adminSettings, setAdminSettings] = useState(() => getInitialState('adminSettings', {
     socialModuleEnabled: true,
@@ -84,232 +75,52 @@ const App: React.FC = () => {
   useEffect(() => { localStorage.setItem('widgetTiers', JSON.stringify(widgetTiers)); }, [widgetTiers]);
   useEffect(() => { localStorage.setItem('chapterConfigs', JSON.stringify(chapterConfigs)); }, [chapterConfigs]);
   
-  // --- Data Loading and Resetting ---
-  const loadUserData = async (userId: string, userEmail: string) => {
-      // Fetch profile data
-      const { data: profileData, error: profileError } = await supabase
-          .from('profiles')
-          .select('user_tier, is_banner_dismissed, is_upgrade_banner_hidden')
-          .eq('id', userId)
-          .single();
+  // --- Supabase Auth & User Data ---
+  const {
+    isAuthenticated, user, setUser, handleLogout, handleDeleteAccount,
+    formData, setFormData, notes, setNotes, tasks, setTasks, weeklyGoals, setWeeklyGoals,
+    favoriteChapterIds, setFavoriteChapterIds, isBannerDismissed, setIsBannerDismissed,
+    userTier, setUserTier, isUpgradeBannerHidden, setIsUpgradeBannerHidden,
+  } = useSupabaseAuth({ students, staffUsers, setStudents, setUserTier });
 
-      if (profileError) console.error('Error fetching user profile settings:', profileError);
+  // --- Supabase Data Persistence ---
+  useSupabaseDataPersistence({
+    isAuthenticated, user, formData, favoriteChapterIds, isBannerDismissed, userTier, isUpgradeBannerHidden,
+  });
 
-      setUserTier(profileData?.user_tier || 'Grátis');
-      setIsBannerDismissed(profileData?.is_banner_dismissed || false);
-      setIsUpgradeBannerHidden(profileData?.is_upgrade_banner_hidden || true);
+  // --- User Actions (CRUD for notes, tasks, goals, favorites) ---
+  const {
+    handleInputChange, handleAddNote, handleEditNote, handleDeleteNote,
+    handleAddTask, handleToggleTask, handleDeleteTask, handleSetTaskReminder,
+    handleToggleFavoriteChapter, handleAddWeeklyGoal, handleUpdateWeeklyGoal, handleDeleteWeeklyGoal,
+  } = useUserActions({
+    isAuthenticated, user, setNotes, setTasks, setWeeklyGoals, setFavoriteChapterIds, setFormData, favoriteChapterIds,
+    setActiveReminders: (newActiveReminders) => { /* Handled by useReminders */ }, // Placeholder, as activeReminders is managed by useReminders
+  });
 
-      // Fetch notes
-      const { data: notesData, error: notesError } = await supabase
-          .from('user_notes')
-          .select('*')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false });
-      if (notesError) console.error('Error fetching notes:', notesError);
-      setNotes(notesData || []);
-
-      // Fetch tasks
-      const { data: tasksData, error: tasksError } = await supabase
-          .from('user_tasks')
-          .select('*')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false });
-      if (tasksError) console.error('Error fetching tasks:', tasksError);
-      setTasks(tasksData || []);
-
-      // Fetch weekly goals
-      const { data: goalsData, error: goalsError } = await supabase
-          .from('user_weekly_goals')
-          .select('*')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false });
-      if (goalsError) console.error('Error fetching weekly goals:', goalsError);
-      setWeeklyGoals(goalsData || []);
-
-      // Fetch form data
-      const { data: formDataArray, error: formDataError } = await supabase
-          .from('user_form_data')
-          .select('key, value')
-          .eq('user_id', userId);
-      if (formDataError) console.error('Error fetching form data:', formDataError);
-      const loadedFormData = formDataArray ? formDataArray.reduce((acc, item) => ({ ...acc, [item.key]: item.value }), {}) : {};
-      setFormData(loadedFormData);
-
-      // Fetch favorite chapters
-      const { data: favChaptersData, error: favChaptersError } = await supabase
-          .from('user_favorite_chapters')
-          .select('chapter_id')
-          .eq('user_id', userId);
-      if (favChaptersError) console.error('Error fetching favorite chapters:', favChaptersError);
-      setFavoriteChapterIds(new Set(favChaptersData?.map(item => item.chapter_id) || []));
-  };
-
-  const resetUserState = () => {
-      setFormData({});
-      setNotes([]);
-      setTasks([]);
-      setWeeklyGoals([]);
-      setFavoriteChapterIds(new Set());
-      setUserTier('Grátis');
-      setIsBannerDismissed(false);
-      setIsUpgradeBannerHidden(true);
-  };
-  
-  // --- Supabase Auth Listener ---
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
-        const { data: profile, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
-
-        if (error) console.error('Error fetching profile:', error);
-        
-        const userProfile: UserProfile = {
-            name: profile?.name || session.user.email || '',
-            email: session.user.email || '',
-            avatarUrl: profile?.avatar_url || `https://i.pravatar.cc/100?u=${session.user.id}`,
-            role: profile?.role || 'user', // Inclui a função do perfil
-        };
-        
-        setUser(userProfile);
-        
-        const staffRecord = staffUsers.find(s => s.email === userProfile.email);
-        if (staffRecord) {
-            setUserTier('Completo');
-            loadUserData(session.user.id, userProfile.email);
-            setIsAuthenticated(true);
-            return;
-        }
-
-        const studentRecord = students.find(s => s.email === userProfile.email);
-        if (studentRecord) {
-            // For students, load tier from Supabase profile, fallback to studentRecord or 'Grátis'
-            setUserTier(profile?.user_tier || studentRecord.tier || 'Grátis');
-            loadUserData(session.user.id, userProfile.email);
-        } else {
-            resetUserState();
-            const newStudent: Student = {
-                id: session.user.id,
-                name: userProfile.name || 'Novo Aluno',
-                email: userProfile.email,
-                avatarUrl: userProfile.avatarUrl,
-                tier: 'Grátis',
-                joinedDate: new Date().toLocaleDateString('pt-BR'),
-                progress: 0,
-            };
-            setStudents(prevStudents => [newStudent, ...prevStudents]);
-            setUserTier('Grátis');
-        }
-        setIsAuthenticated(true);
-
-      } else if (event === 'SIGNED_OUT') {
-        resetUserState();
-        setIsAuthenticated(false);
-        setUser({ name: '', email: '', avatarUrl: '' });
-        setView('dashboard');
-        setSelectedChapterId(0);
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [students, staffUsers]); // Add dependencies to re-run if student/staff list changes
-
-  // --- User-Specific State Persistence to Supabase ---
-  // These effects will trigger updates to Supabase whenever the local state changes
-  useEffect(() => {
-    const saveProfileSettings = async () => {
-      if (!isAuthenticated || !user.email) return;
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser) return;
-
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          user_tier: userTier,
-          is_banner_dismissed: isBannerDismissed,
-          is_upgrade_banner_hidden: isUpgradeBannerHidden,
-        })
-        .eq('id', authUser.id);
-
-      if (error) console.error('Error saving profile settings:', error);
-    };
-    saveProfileSettings();
-  }, [isAuthenticated, user.email, userTier, isBannerDismissed, isUpgradeBannerHidden]);
-
-  useEffect(() => {
-    const saveFormData = async () => {
-      if (!isAuthenticated || !user.email) return;
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser) return;
-
-      // Iterate over formData and upsert each key-value pair
-      for (const key in formData) {
-        const value = formData[key];
-        const { error } = await supabase
-          .from('user_form_data')
-          .upsert({ user_id: authUser.id, key, value })
-          .eq('user_id', authUser.id)
-          .eq('key', key);
-        if (error) console.error(`Error saving form data for key ${key}:`, error);
-      }
-    };
-    saveFormData();
-  }, [isAuthenticated, user.email, formData]);
-
-  useEffect(() => {
-    const saveFavoriteChapters = async () => {
-      if (!isAuthenticated || !user.email) return;
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser) return;
-
-      // First, delete all existing favorites for the user
-      const { error: deleteError } = await supabase
-        .from('user_favorite_chapters')
-        .delete()
-        .eq('user_id', authUser.id);
-
-      if (deleteError) {
-        console.error('Error deleting old favorite chapters:', deleteError);
-        return;
-      }
-
-      // Then, insert the current set of favorites
-      const favoritesToInsert = Array.from(favoriteChapterIds).map(chapter_id => ({
-        user_id: authUser.id,
-        chapter_id,
-      }));
-
-      if (favoritesToInsert.length > 0) {
-        const { error: insertError } = await supabase
-          .from('user_favorite_chapters')
-          .insert(favoritesToInsert);
-        if (insertError) console.error('Error inserting new favorite chapters:', insertError);
-      }
-    };
-    saveFavoriteChapters();
-  }, [isAuthenticated, user.email, favoriteChapterIds]);
-
-
-  // --- Non-Persisted State ---
+  // --- Non-Persisted UI State ---
   const [selectedChapterId, setSelectedChapterId] = useState<number>(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [view, setView] = useState<'content' | 'dashboard' | 'settings' | 'summaries' | 'profile' | 'plans'>('dashboard');
-  const [activeReminders, setActiveReminders] = useState<Task[]>([]);
-  const [isBellRinging, setIsBellRinging] = useState(false);
-  const [showRemindersDropdown, setShowRemindersDropdown] = useState(false);
-  const remindersDropdownRef = useRef<HTMLDivElement>(null);
-  const profileDropdownRef = useRef<HTMLDivElement>(null);
-  const tierDropdownRef = useRef<HTMLDivElement>(null);
+  const [globalNotifications, setGlobalNotifications] = useState<GlobalNotification[]>([]);
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
   const [isTierDropdownOpen, setIsTierDropdownOpen] = useState(false);
-  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
-  const [globalNotifications, setGlobalNotifications] = useState<GlobalNotification[]>([]);
 
+  // --- Reminders and Notifications ---
+  const {
+    activeReminders, isBellRinging, showRemindersDropdown, setShowRemindersDropdown, remindersDropdownRef, notificationCount,
+    onDismissReminder: dismissTaskReminder, onDismissGlobalNotification,
+  } = useReminders({
+    tasks, globalNotifications,
+    onDismissReminder: handleSetTaskReminder, // Use the action from useUserActions
+    onDismissGlobalNotification: (id) => setGlobalNotifications(prev => prev.filter(n => n.id !== id)),
+  });
+
+  // --- Click Outside Handlers for Dropdowns ---
+  const profileDropdownRef = useClickOutside<HTMLDivElement>(() => setIsProfileDropdownOpen(false));
+  const tierDropdownRef = useClickOutside<HTMLDivElement>(() => setIsTierDropdownOpen(false));
+  
   const currentUser = useMemo(() => {
     return staffUsers.find(staff => staff.email === user.email) || null;
   }, [user.email, staffUsers]);
@@ -319,6 +130,8 @@ const App: React.FC = () => {
   const canAccessSettings = hasAdminAccess || isProfessor;
 
   const handleUpdateProfile = async (updatedUser: UserProfile) => {
+    // This function is still in App.tsx because it updates the global 'user' state
+    // and also needs to update 'students' and 'staffUsers' global states.
     const { data: { user: authUser } } = await supabase.auth.getUser();
     if (!authUser) return;
 
@@ -475,30 +288,6 @@ const App: React.FC = () => {
   const hasAccess = (requiredTier: UserTier) => tierOrder[userTier] >= tierOrder[requiredTier];
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      const now = new Date();
-      const dueTasks = tasks.filter(task => !task.completed && task.reminder && new Date(task.reminder) <= now);
-      const newDueTasks = dueTasks.filter(dueTask => !activeReminders.some(active => active.id === dueTask.id));
-      if (newDueTasks.length > 0) {
-        setIsBellRinging(true);
-        setTimeout(() => setIsBellRinging(false), 1000);
-      }
-      setActiveReminders(dueTasks);
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [tasks, activeReminders]);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (remindersDropdownRef.current && !remindersDropdownRef.current.contains(event.target as Node)) setShowRemindersDropdown(false);
-      if (profileDropdownRef.current && !profileDropdownRef.current.contains(event.target as Node)) setIsProfileDropdownOpen(false);
-      if (tierDropdownRef.current && !tierDropdownRef.current.contains(event.target as Node)) setIsTierDropdownOpen(false);
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-  
-  useEffect(() => {
     if (view === 'settings' && !canAccessSettings) setView('dashboard');
   }, [view, canAccessSettings]);
   
@@ -508,195 +297,7 @@ const App: React.FC = () => {
       console.warn("Detected staff members in the student list. Cleaning up...");
       setStudents(prevStudents => prevStudents.filter(student => !staffEmails.has(student.email)));
     }
-  }, []);
-
-  const handleInputChange = async (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value, type } = e.target;
-    const isCheckbox = type === 'checkbox';
-    const inputValue = isCheckbox ? (e.target as HTMLInputElement).checked : value;
-    
-    setFormData(prevData => ({ ...prevData, [name]: inputValue }));
-
-    // Persist individual form data to Supabase
-    if (isAuthenticated && user.email) {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser) return;
-
-      const { error } = await supabase
-        .from('user_form_data')
-        .upsert({ user_id: authUser.id, key: name, value: inputValue })
-        .eq('user_id', authUser.id)
-        .eq('key', name);
-      if (error) console.error(`Error saving form data for key ${name}:`, error);
-    }
-  };
-  
-  const handleAddNote = async (content: string) => {
-    if (!content.trim() || !isAuthenticated || !user.email) return;
-    const { data: { user: authUser } } = await supabase.auth.getUser();
-    if (!authUser) return;
-
-    const { data, error } = await supabase
-      .from('user_notes')
-      .insert({ user_id: authUser.id, content })
-      .select();
-
-    if (error) console.error('Error adding note:', error);
-    else if (data) setNotes(prevNotes => [...data, ...prevNotes]);
-  };
-
-  const handleEditNote = async (id: string, content: string) => {
-    if (!isAuthenticated || !user.email) return;
-    const { error } = await supabase
-      .from('user_notes')
-      .update({ content })
-      .eq('id', id)
-      .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
-
-    if (error) console.error('Error editing note:', error);
-    else setNotes(prevNotes => prevNotes.map(note => (note.id === id ? { ...note, content } : note)));
-  };
-
-  const handleDeleteNote = async (id: string) => {
-    if (!isAuthenticated || !user.email) return;
-    if (window.confirm('Tem certeza que deseja excluir esta nota?')) {
-      const { error } = await supabase
-        .from('user_notes')
-        .delete()
-        .eq('id', id)
-        .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
-
-      if (error) console.error('Error deleting note:', error);
-      else setNotes(prevNotes => prevNotes.filter(note => note.id !== id));
-    }
-  };
-
-  const handleAddTask = async (text: string) => {
-    if (!text.trim() || !isAuthenticated || !user.email) return;
-    const { data: { user: authUser } } = await supabase.auth.getUser();
-    if (!authUser) return;
-
-    const { data, error } = await supabase
-      .from('user_tasks')
-      .insert({ user_id: authUser.id, text, completed: false })
-      .select();
-
-    if (error) console.error('Error adding task:', error);
-    else if (data) setTasks(prevTasks => [...data, ...prevTasks]);
-  };
-
-  const handleToggleTask = async (id: string) => {
-    if (!isAuthenticated || !user.email) return;
-    const taskToToggle = tasks.find(task => task.id === id);
-    if (!taskToToggle) return;
-
-    const { error } = await supabase
-      .from('user_tasks')
-      .update({ completed: !taskToToggle.completed })
-      .eq('id', id)
-      .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
-
-    if (error) console.error('Error toggling task:', error);
-    else {
-      setTasks(prevTasks => prevTasks.map(task => task.id === id ? { ...task, completed: !task.completed } : task));
-      setActiveReminders(prev => prev.filter(r => r.id !== id));
-    }
-  };
-  
-  const handleDeleteTask = async (id: string) => {
-    if (!isAuthenticated || !user.email) return;
-    const { error } = await supabase
-      .from('user_tasks')
-      .delete()
-      .eq('id', id)
-      .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
-
-    if (error) console.error('Error deleting task:', error);
-    else {
-      setTasks(prevTasks => prevTasks.filter(task => task.id !== id));
-      setActiveReminders(prev => prev.filter(r => r.id !== id));
-    }
-  };
-
-  const handleSetTaskReminder = async (id: string, reminder: string | null) => {
-    if (!isAuthenticated || !user.email) return;
-    const { error } = await supabase
-      .from('user_tasks')
-      .update({ reminder })
-      .eq('id', id)
-      .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
-
-    if (error) console.error('Error setting task reminder:', error);
-    else setTasks(prevTasks => prevTasks.map(task => task.id === id ? { ...task, reminder } : task));
-  };
-
-  const handleDismissReminder = (id: string) => {
-    handleSetTaskReminder(id, null);
-    setShowRemindersDropdown(false);
-  };
-
-  const handleToggleFavoriteChapter = async (chapterId: number) => {
-    if (!isAuthenticated || !user.email) return;
-    const { data: { user: authUser } } = await supabase.auth.getUser();
-    if (!authUser) return;
-
-    const isCurrentlyFavorited = favoriteChapterIds.has(chapterId);
-
-    if (isCurrentlyFavorited) {
-      const { error } = await supabase
-        .from('user_favorite_chapters')
-        .delete()
-        .eq('user_id', authUser.id)
-        .eq('chapter_id', chapterId);
-      if (error) console.error('Error removing favorite chapter:', error);
-      else setFavoriteChapterIds(prev => { const newSet = new Set(prev); newSet.delete(chapterId); return newSet; });
-    } else {
-      const { error } = await supabase
-        .from('user_favorite_chapters')
-        .insert({ user_id: authUser.id, chapter_id: chapterId });
-      if (error) console.error('Error adding favorite chapter:', error);
-      else setFavoriteChapterIds(prev => { const newSet = new Set(prev); newSet.add(chapterId); return newSet; });
-    }
-  };
-
-  const handleAddWeeklyGoal = async (description: string, target: number) => {
-    if (!description.trim() || target <= 0 || !isAuthenticated || !user.email) return;
-    const { data: { user: authUser } } = await supabase.auth.getUser();
-    if (!authUser) return;
-
-    const { data, error } = await supabase
-      .from('user_weekly_goals')
-      .insert({ user_id: authUser.id, description, target, current: 0 })
-      .select();
-
-    if (error) console.error('Error adding weekly goal:', error);
-    else if (data) setWeeklyGoals(prev => [...data, ...prev]);
-  };
-
-  const handleUpdateWeeklyGoal = async (id: string, current: number) => {
-    if (!isAuthenticated || !user.email) return;
-    const clampedCurrent = Math.max(0, current); // Ensure current is not negative
-    const { error } = await supabase
-      .from('user_weekly_goals')
-      .update({ current: clampedCurrent })
-      .eq('id', id)
-      .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
-
-    if (error) console.error('Error updating weekly goal:', error);
-    else setWeeklyGoals(prev => prev.map(goal => goal.id === id ? { ...goal, current: clampedCurrent } : goal));
-  };
-
-  const handleDeleteWeeklyGoal = async (id: string) => {
-    if (!isAuthenticated || !user.email) return;
-    const { error } = await supabase
-      .from('user_weekly_goals')
-      .delete()
-      .eq('id', id)
-      .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
-
-    if (error) console.error('Error deleting weekly goal:', error);
-    else setWeeklyGoals(prev => prev.filter(goal => goal.id !== id));
-  };
+  }, [students, staffUsers]);
 
   const handlePublishAnnouncement = (announcement: Announcement | null) => {
       setGlobalAnnouncement(announcement);
@@ -704,14 +305,9 @@ const App: React.FC = () => {
       if (announcement && announcement.message && (announcement.displayType === 'notification' || announcement.displayType === 'both')) {
           const newNotification: GlobalNotification = { id: `global_${Date.now()}`, message: announcement.message };
           setGlobalNotifications(prev => [newNotification, ...prev]);
-          setIsBellRinging(true);
-          setTimeout(() => setIsBellRinging(false), 1000);
+          // setIsBellRinging(true); // Managed by useReminders
+          // setTimeout(() => setIsBellRinging(false), 1000); // Managed by useReminders
       }
-  };
-
-  const handleDismissGlobalNotification = (id: string) => {
-      setGlobalNotifications(prev => prev.filter(n => n.id !== id));
-      setShowRemindersDropdown(false);
   };
 
   const completedChapterIds = useMemo(() => {
@@ -771,37 +367,6 @@ const App: React.FC = () => {
     setIsUpgradeModalOpen(false);
   };
 
-  const handleLogout = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) console.error('Error logging out:', error.message);
-  };
-
-  const handleDeleteAccount = async () => {
-    const { data: { user: authUser } } = await supabase.auth.getUser();
-    if (!authUser) return;
-
-    // Delete all user-specific data from Supabase tables
-    const { error: notesError } = await supabase.from('user_notes').delete().eq('user_id', authUser.id);
-    if (notesError) console.error('Error deleting user notes:', notesError);
-
-    const { error: tasksError } = await supabase.from('user_tasks').delete().eq('user_id', authUser.id);
-    if (tasksError) console.error('Error deleting user tasks:', tasksError);
-
-    const { error: goalsError } = await supabase.from('user_weekly_goals').delete().eq('user_id', authUser.id);
-    if (goalsError) console.error('Error deleting user weekly goals:', goalsError);
-
-    const { error: formDataError } = await supabase.from('user_form_data').delete().eq('user_id', authUser.id);
-    if (formDataError) console.error('Error deleting user form data:', formDataError);
-
-    const { error: favChaptersError } = await supabase.from('user_favorite_chapters').delete().eq('user_id', authUser.id);
-    if (favChaptersError) console.error('Error deleting user favorite chapters:', favChaptersError);
-
-    const { error: profileError } = await supabase.from('profiles').delete().eq('id', authUser.id);
-    if (profileError) console.error('Error deleting user profile:', profileError);
-
-    await handleLogout();
-  };
-
   const getPageTitle = () => {
     switch(view) {
         case 'dashboard': return 'Meu Progresso';
@@ -830,7 +395,6 @@ const App: React.FC = () => {
     }
   }
   
-  const notificationCount = activeReminders.length + globalNotifications.length;
   const selectedChapter = chapters.find(c => c.id === selectedChapterId) || chapters[0];
   const showBanner = !isBannerDismissed && globalAnnouncement && (globalAnnouncement.displayType === 'banner' || globalAnnouncement.displayType === 'both');
 
@@ -936,7 +500,7 @@ const App: React.FC = () => {
                                                     </div>
                                                 </div>
                                                 <div className="flex items-center justify-end mt-2">
-                                                    <button onClick={() => handleDismissGlobalNotification(notification.id)} className="px-2 py-1 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors">Dispensar</button>
+                                                    <button onClick={() => onDismissGlobalNotification(notification.id)} className="px-2 py-1 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors">Dispensar</button>
                                                 </div>
                                             </div>
                                         ))}
@@ -946,7 +510,7 @@ const App: React.FC = () => {
                                                 <p className="text-xs text-slate-500 mt-1">Lembrete vencido.</p>
                                                 <div className="flex items-center justify-end mt-2 space-x-2">
                                                     <button onClick={() => handleToggleTask(task.id)} className="px-2 py-1 text-xs font-semibold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 rounded-md transition-colors">Concluir</button>
-                                                    <button onClick={() => handleDismissReminder(task.id)} className="px-2 py-1 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors">Dispensar</button>
+                                                    <button onClick={() => dismissTaskReminder(task.id, null)} className="px-2 py-1 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors">Dispensar</button>
                                                 </div>
                                             </div>
                                         ))}
