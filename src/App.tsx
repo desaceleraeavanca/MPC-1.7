@@ -129,9 +129,7 @@ const App: React.FC = () => {
           .eq('id', session.user.id)
           .single();
 
-        if (error) {
-          console.error('Error fetching profile:', error);
-        }
+        if (error) console.error('Error fetching profile:', error);
         
         const userProfile: UserProfile = {
             name: profile?.name || session.user.email || '',
@@ -141,17 +139,32 @@ const App: React.FC = () => {
         
         setUser(userProfile);
         
-        // Check if user is staff
-        const staffRecord = defaultStaffUsers.find(s => s.email === userProfile.email);
+        const staffRecord = staffUsers.find(s => s.email === userProfile.email);
         if (staffRecord) {
-            setUserTier('Completo'); // Staff get full access
-        } else {
-            // For regular users, check if they exist as a student to get their tier
-            const studentRecord = defaultStudents.find(s => s.email === userProfile.email);
-            setUserTier(getInitialState(`${userProfile.email}_userTier`, studentRecord?.tier || 'Grátis'));
+            setUserTier('Completo');
+            loadUserData(userProfile.email);
+            setIsAuthenticated(true);
+            return;
         }
 
-        loadUserData(session.user.email!);
+        const studentRecord = students.find(s => s.email === userProfile.email);
+        if (studentRecord) {
+            setUserTier(getInitialState(`${userProfile.email}_userTier`, studentRecord.tier || 'Grátis'));
+            loadUserData(userProfile.email);
+        } else {
+            resetUserState();
+            const newStudent: Student = {
+                id: session.user.id,
+                name: userProfile.name || 'Novo Aluno',
+                email: userProfile.email,
+                avatarUrl: userProfile.avatarUrl,
+                tier: 'Grátis',
+                joinedDate: new Date().toLocaleDateString('pt-BR'),
+                progress: 0,
+            };
+            setStudents(prevStudents => [newStudent, ...prevStudents]);
+            setUserTier('Grátis');
+        }
         setIsAuthenticated(true);
 
       } else if (event === 'SIGNED_OUT') {
@@ -166,7 +179,7 @@ const App: React.FC = () => {
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [students, staffUsers]); // Add dependencies to re-run if student/staff list changes
 
   // --- Non-Persisted State ---
   const [selectedChapterId, setSelectedChapterId] = useState<number>(0);
@@ -195,6 +208,8 @@ const App: React.FC = () => {
     const { data: { user: authUser } } = await supabase.auth.getUser();
     if (!authUser) return;
 
+    const oldEmail = user.email;
+
     const { error } = await supabase
       .from('profiles')
       .update({ name: updatedUser.name, avatar_url: updatedUser.avatarUrl })
@@ -204,6 +219,20 @@ const App: React.FC = () => {
       console.error('Error updating profile:', error);
     } else {
       setUser(updatedUser);
+      setStudents(prevStudents =>
+        prevStudents.map(student =>
+          student.email === oldEmail
+            ? { ...student, name: updatedUser.name, avatarUrl: updatedUser.avatarUrl }
+            : student
+        )
+      );
+      setStaffUsers(prevStaff =>
+        prevStaff.map(staff =>
+          staff.email === oldEmail
+            ? { ...staff, name: updatedUser.name, avatarUrl: updatedUser.avatarUrl }
+            : staff
+        )
+      );
     }
   };
   
