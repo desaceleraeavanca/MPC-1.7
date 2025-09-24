@@ -1,19 +1,19 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Sidebar } from './components/Sidebar';
-import { ContentDisplay } from './components/ContentDisplay';
-import { Dashboard } from './components/Dashboard';
-import { Settings } from './components/Settings';
-import { ChapterSummaries } from './components/ChapterSummaries';
-import { Profile } from './components/Profile';
-import { UpgradeModal } from './components/UpgradeModal';
-import { Login } from './components/Login';
-import { Plans } from './components/Plans';
-import { BOOK_CONTENT, CHAPTER_COMPLETION_REQUIREMENTS, tierInfo } from './constants';
-import { SEARCHABLE_TEXT } from './searchableContent';
-import type { Chapter, SearchResult, Note, Task, WeeklyGoal, UserTier, UserProfile, GlobalNotification, Announcement, Student, StaffUser, UserRole } from './types';
-import { Bell, BookOpen, Cog, FileText, Eye, Home, User, LogOut, X, AlertTriangle, Megaphone, ChevronDown, CheckCircle, Layers } from './components/Icons';
-import { iconMap } from './components/Icons';
-import { supabase } from './integrations/supabase/client';
+import { Sidebar } from '@/src/components/Sidebar'; // Fixed import path
+import { ContentDisplay } from '@/src/components/ContentDisplay'; // Fixed import path
+import { Dashboard } from '@/src/components/Dashboard'; // Fixed import path
+import { Settings } from '@/src/components/Settings'; // Fixed import path
+import { ChapterSummaries } from '@/src/components/ChapterSummaries'; // Fixed import path
+import { Profile } from '@/src/components/Profile'; // Fixed import path
+import { UpgradeModal } from '@/src/components/UpgradeModal'; // Fixed import path
+import { Login } from '@/src/components/Login'; // Fixed import path
+import { Plans } from '@/src/components/Plans'; // Fixed import path
+import { BOOK_CONTENT, CHAPTER_COMPLETION_REQUIREMENTS, tierInfo } from '@/src/constants'; // Fixed import path
+import { SEARCHABLE_TEXT } from '@/src/searchableContent'; // Fixed import path
+import type { Chapter, SearchResult, Note, Task, WeeklyGoal, UserTier, UserProfile, GlobalNotification, Announcement, Student, StaffUser, UserRole } from '@/src/types'; // Fixed import path
+import { Bell, BookOpen, Cog, FileText, Eye, Home, User, LogOut, X, AlertTriangle, Megaphone, ChevronDown, CheckCircle, Layers } from '@/src/components/Icons'; // Fixed import path
+import { iconMap } from '@/src/components/Icons'; // Fixed import path
+import { supabase } from '@/src/integrations/supabase/client';
 
 // --- Persistence Helper ---
 const getInitialState = <T,>(key: string, defaultValue: T): T => {
@@ -135,6 +135,7 @@ const App: React.FC = () => {
             name: profile?.name || session.user.email || '',
             email: session.user.email || '',
             avatarUrl: profile?.avatar_url || `https://i.pravatar.cc/100?u=${session.user.id}`,
+            role: profile?.role || 'user', // Inclui a função do perfil
         };
         
         setUser(userProfile);
@@ -508,8 +509,8 @@ const App: React.FC = () => {
   };
 
   const handleDeleteAccount = async () => {
-    // This should ideally be a call to a Supabase Edge Function to delete the user from auth.users
-    // For now, we just clear local data and sign out.
+    // This is for self-deletion, which only clears local data and signs out.
+    // Actual user deletion from auth.users is an admin action via Edge Function.
     const userEmailToDelete = user.email;
     if (userEmailToDelete) {
         localStorage.removeItem(`${userEmailToDelete}_formData`);

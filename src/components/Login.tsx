@@ -1,8 +1,8 @@
 import React from 'react';
 import { Auth } from '@supabase/auth-ui-react';
 import { ThemeSupa } from '@supabase/auth-ui-shared';
-import { PluralsLogo } from './Icons';
-import { supabase } from '../integrations/supabase/client';
+import { PluralsLogo } from '@/src/components/Icons'; // Fixed import path
+import { supabase } from '@/src/integrations/supabase/client'; // Fixed import path
 
 export const Login: React.FC = () => {
   return (
@@ -65,7 +65,7 @@ export const Login: React.FC = () => {
                   button_label: 'Criar conta',
                   social_provider_text: 'Entrar com {{provider}}',
                   link_text: 'Não tem uma conta? Crie uma',
-                  user_details_label: 'Por favor, insira seus dados abaixo',
+                  // user_details_label: 'Por favor, insira seus dados abaixo', // Removido: não é uma propriedade válida
                   confirmation_text: 'Verifique seu e-mail para o link de confirmação',
                 },
                 forgotten_password: {

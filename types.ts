@@ -18,6 +18,7 @@ export type UserProfile = {
   name: string;
   email: string;
   avatarUrl: string;
+  role?: UserRole; // Adicionado para refletir a coluna 'role' no perfil do Supabase
 };
 
 export type Student = {
